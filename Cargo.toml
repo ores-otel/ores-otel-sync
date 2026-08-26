@@ -1,0 +1,16 @@
+    [package]
+    name = "ores-otel-sync"
+    version = "0.1.0"
+    edition = "2021"
+    license = "MIT"
+    description = "opto-sync wrapper for ores-otel"
+    repository = "https://github.com/ores-otel/ores-otel-sync"
+
+    [dependencies]
+    serde = { version = "1", features = ["derive"] }
+    thiserror = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+
