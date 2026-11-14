@@ -7,6 +7,19 @@ use crate::sqlite::SqliteStore;
 pub struct SyncBoundary {
     pub store: SqliteStore,
     pub enabled: bool,
+}
+
+impl SyncBoundary {
+    pub fn envelope(&self, bytes: &[u8]) -> Result<usize, SyncError> {
+        if !self.enabled {
+            return Err(SyncError::Disabled);
+        }
+        if bytes.len() > 64 * 1024 {
+            return Err(SyncError::TooLarge);
+        }
+        Ok(bytes.len())
+    }
+
     /// Admission-only check for a batch, before a caller persists or transmits it.
     /// Enforces each record's bound, an aggregate byte budget and a record-count
     /// limit without allocating or partially admitting a batch.
@@ -36,15 +49,18 @@ mod tests {
     use super::*;
 
     fn boundary(enabled: bool) -> SyncBoundary {
-        SyncBoundary { store: SqliteStore::default(), enabled }
+        SyncBoundary {
+            store: SqliteStore::default(),
+            enabled,
+        }
     }
 
     #[test]
     fn admits_bounded_batches_without_modifying_store() {
         let first = [7u8; 3];
         let second = [9u8; 5];
-        assert_eq!(boundary(true).admit_batch(&[&first, &second]), Ok(8));
-        assert_eq!(boundary(true).admit_batch(&[]), Ok(0));
+        assert!(matches!(boundary(true).admit_batch(&[&first, &second]), Ok(8)));
+        assert!(matches!(boundary(true).admit_batch(&[]), Ok(0)));
     }
 
     #[test]
@@ -58,7 +74,10 @@ mod tests {
         let entries = vec![byte.as_slice(); 257];
         assert!(matches!(boundary(true).admit_batch(&entries), Err(SyncError::TooLarge)));
         let oversized = vec![2u8; 64 * 1024 + 1];
-        assert!(matches!(boundary(true).admit_batch(&[&oversized]), Err(SyncError::TooLarge)));
+        assert!(matches!(
+            boundary(true).admit_batch(&[oversized.as_slice()]),
+            Err(SyncError::TooLarge)
+        ));
     }
 
     #[test]
@@ -66,19 +85,10 @@ mod tests {
         let record = vec![0u8; 64 * 1024];
         let sixteen = vec![record.as_slice(); 16];
         let seventeen = vec![record.as_slice(); 17];
-        assert_eq!(boundary(true).admit_batch(&sixteen), Ok(1024 * 1024));
-        assert!(matches!(boundary(true).admit_batch(&seventeen), Err(SyncError::TooLarge)));
+        assert!(matches!(boundary(true).admit_batch(&sixteen), Ok(1_048_576)));
+        assert!(matches!(
+            boundary(true).admit_batch(&seventeen),
+            Err(SyncError::TooLarge)
+        ));
     }
 }
-impl SyncBoundary {
-    pub fn envelope(&self, bytes: &[u8]) -> Result<usize, SyncError> {
-        if !self.enabled {
-            return Err(SyncError::Disabled);
-        }
-        if bytes.len() > 64 * 1024 {
-            return Err(SyncError::TooLarge);
-        }
-        Ok(bytes.len())
-    }
-}
-
